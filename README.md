@@ -1,5 +1,5 @@
-# easyhound
-Easy alternative to [BloodHound](https://github.com/BloodHoundAD/BloodHound)
+# EasyHound
+EasyHound is a tool for resource constrained blue teams that don't have the time to setup and run [BloodHound](https://github.com/BloodHoundAD/BloodHound), or don't know how. It's intended for IT teams in small school districts or hospitals, the same ones getting hit hard by ransomware (commonly exploits this problem). 
 
 ## Running
 * Clone this repo or [download a copy of the repo as a zip](https://github.com/ericalexanderorg/easyhound/archive/main.zip)
@@ -7,14 +7,9 @@ Easy alternative to [BloodHound](https://github.com/BloodHoundAD/BloodHound)
 * Wait for the output (can take an hour or more)
 * Review the CSV in Code\cache\report.csv to find computers/servers where a domain admin is logged in and a non-admin can login and [become the domain admin](https://github.com/gentilkiwi/mimikatz)
 
-## Why
-[BloodHound](https://github.com/BloodHoundAD/BloodHound) is a tool to find a path to elevate from Domain User to Domain Admin in an Active Directory domain.
-
-This isn't a replacement for BloodHound, it's a simple alternative with barriers removed to provide a glimpse into the problem. 
-
 ## Goals
 * All powershell. Reduce barriers to run.
-* Support finding shortest path to admin.
+* Easy and actionable insight for blue teams to address domain admin elevation vulnerabilities.
 
 ## Current State
 * Powershell scripts that find computers/servers with domain admins logged in, and the opportunity for non-domain admins to login and dump their creds with [mimikatz](https://github.com/gentilkiwi/mimikatz).
