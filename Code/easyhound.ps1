@@ -1,11 +1,7 @@
 param
 (
-    [string]$ForceValidateAlive = $False
+    [bool]$ReportOnly = $False
 )
-
-$CWD = Get-Location
-
-. "$CWD\shared.ps1"
 
 function Get-Nodes($threads) {
     $Domain = Get-ADDomain
@@ -205,13 +201,12 @@ function Generate-Report{
                     if ("admins" -in $Node.PSobject.Properties.Name){
                         foreach($LocalAdmin in $Node.admins){
                             $LocalAdmin = Get-Last-Slash($LocalAdmin)
-                            if (-not ($HuntedGroups -contains $LocalAdmin)){
+                            if (-not ($HuntedGroups -contains $LocalAdmin) -or ($Hunted -contains $LocalAdmin)){
                                 # Got a hit
                                 $NodeName = $Node.name
                                 $DomainAdmin = Get-Last-Slash($Admin)
                                 $NotDomainAdmin = Get-Last-Slash($LocalAdmin)
-                                Add-Content -Path $CSVPath  -Value "$DomainAdmin","$NodeName","$NotDomainAdmin"
-                                #Write-Host "Found $DomainAdmin logged in to $NodeName and $NotDomainAdmin can also login"
+                                Add-Content -Path $CSVPath "$DomainAdmin,$NodeName,$NotDomainAdmin"
                             }
                         }
                     }
@@ -263,7 +258,16 @@ function Main {
 
 }
 
-Main
+$CWD = Get-Location
+. "$CWD\shared.ps1"
+if ($ReportOnly){
+    Generate-Report
+}
+else {
+    Main
+}
+
+
 
 
 
