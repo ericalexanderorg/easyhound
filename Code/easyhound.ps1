@@ -170,8 +170,11 @@ function Convert-Path-To-Name($Path){
 function Generate-Report{
     $CWD = Get-Location
 
-    # Create CSV File
+    # Create CSV File (delete old copy if exists)
     $CSVPath = "$CWD\cache\report.csv"
+    if (Test-Path $CSVPath) {
+        Remove-Item $CSVPath
+    }
     Add-Content -Path $CSVPath  -Value '"Admin","Logged In To","Can Become Admin"'
 
     # Build a list of Enterprise and Domain Admins - this is who we're hunting
@@ -189,23 +192,29 @@ function Generate-Report{
         }
     }
 
+    # We get false positives when pulling sessions
+    # The job sees this user logged in
+    # Remove from hunted so we don't have false positives in the report
+    # Bug to fix: https://github.com/ericalexanderorg/easyhound/issues/4
+    $Hunted = $Hunted| Where-Object{-not($_ -eq $env:UserName)}
+
     # Find all nodes where the hunted are logged in and non-admins can also login
     Get-ChildItem -Path "$CWD\cache\nodes" | ForEach-Object {
         $Path = $_.FullName
         $Node = Get-Content $Path | ConvertFrom-Json
 
         if ("sessions" -in $Node.PSobject.Properties.Name){
-            foreach ($Admin in $Hunted){
-                if (Get-Last-Slash($Node.sessions) -eq Get-Last-Slash($Admin)){
-                    # We found an admin logged in
+            foreach($Session in $Node.sessions){
+                $SessionUserName = Get-Last-Slash($Session)
+                if ($Hunted -contains $SessionUserName){
                     if ("admins" -in $Node.PSobject.Properties.Name){
                         foreach($LocalAdmin in $Node.admins){
                             $LocalAdmin = Get-Last-Slash($LocalAdmin)
-                            if (-not ($HuntedGroups -contains $LocalAdmin) -or ($Hunted -contains $LocalAdmin)){
+                            if (-not (($HuntedGroups -contains $LocalAdmin) -or ($Hunted -contains $LocalAdmin))){
                                 # Got a hit
                                 $NodeName = $Node.name
-                                $DomainAdmin = Get-Last-Slash($Admin)
-                                $NotDomainAdmin = Get-Last-Slash($LocalAdmin)
+                                $DomainAdmin = $SessionUserName
+                                $NotDomainAdmin = $LocalAdmin
                                 Add-Content -Path $CSVPath "$DomainAdmin,$NodeName,$NotDomainAdmin"
                             }
                         }
