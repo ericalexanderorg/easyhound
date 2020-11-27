@@ -2,10 +2,9 @@
 EasyHound is a tool for resource constrained blue teams that don't have the time to setup and run [BloodHound](https://github.com/BloodHoundAD/BloodHound), or don't know how. It's intended for IT teams in small school districts or hospitals, the same ones getting hit hard by ransomware (commonly exploits this problem). 
 
 ## Running
-* Clone this repo or [download a copy of the repo as a zip](https://github.com/ericalexanderorg/easyhound/archive/main.zip)
-* Run .\easyhound.ps1 (in the Code directory)
-* Wait for the output (can take an hour or more)
-* Review the CSV in Code\cache\report.csv to find computers/servers where a domain admin is logged in and a non-admin can login and [become the domain admin](https://github.com/gentilkiwi/mimikatz)
+* From powershell install AD Tools if you don't already have installed: Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
+* Inspect if you'd like: https://raw.githubusercontent.com/ericalexanderorg/easyhound/main/Code/easyhound.ps1
+* Run the following in powershell: iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/ericalexanderorg/easyhound/main/Code/easyhound.ps1'))
 
 ## Goals
 * All powershell. Reduce barriers to run.
