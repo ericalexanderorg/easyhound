@@ -1,108 +1,85 @@
 param
 (
-    [bool]$ReportOnly = $False
+    [bool]$ReportOnly = $false,
+    [bool]$GetNodeData = $false,
+    [bool]$CheckNodeAlive = $false,
+    [string]$CWD,
+    [string]$NodeName,
+    [string]$DomainName
 )
 
-function Get-Nodes($threads) {
-    $Domain = Get-ADDomain
-    $DomainName = $Domain.NetBIOSName
-
-    # Check if we already have a cache of nodes
-    $Nodes = Get-ChildItem '.\cache\nodes\' | Measure-Object
-    if ($Nodes.count -eq 0){
-        # We don't have a cache of nodes from AD, pull it
-        try {
-            # Only interested in enabled Nodes
-            Get-ADComputer -Filter * | ForEach-Object {
-                # Create a cache object for this Node if it doesn't exist
-                $Path = '.\cache\nodes\' + $_.DNSHostName
-                if (-not (Test-Path -Path $Path)) { 
-                    # Node does not exist in our cache, create it
-                    $New = [PSCustomObject]@{
-                        name = $_.DNSHostName
-                    }
-                    
-                    # Convert our object to JSON and ache
-                    $New | ConvertTo-Json | Set-Content -Path $Path
-                }
-            }
-        }
-        catch {
-            Debug "Error pulling nodes from AD. Exiting!"
-            Exit 1
-        }
+function Get-Nodes() {
+    $CWD = Get-Location
+    $DomainName = (Get-ADDomain).NetBIOSName
+    Debug("Pulling list of nodes from Active Directory")
+    try {
+        $Nodes = Get-ADComputer -Filter * 
+    }
+    catch {
+        Debug "Error pulling nodes from AD. Exiting!"
+        Exit 1
     }
 
-    # Multi-threaded node data retrieval
-    # Mostly borrowed from: https://github.com/mrhvid/Start-Multithread/blob/master/Start-Multithread.psm1
     $i = 0
-    $Jobs = @()
-    $SleepTime = 5000
-    $Nodes = Get-ChildItem -Path 'cache\nodes'
+    $NodesCount = $Nodes.count
     $Nodes | ForEach-Object {
-        $Path = $_.FullName
-        Debug("Processing $Path")
-        # Wait for running jobs to finnish if MaxThreads is reached
-        $MaxThreads = $Nodes.count / 20
-        While((Get-Job -State Running).count -ge $MaxThreads) {
-            Write-Progress -Id 1 -Activity 'Waiting for existing jobs to complete' -Status "$($(Get-job -State Running).count) jobs running" -PercentComplete ($i / $Nodes.Count * 100)
-            Write-Verbose -Message 'Waiting for jobs to finish before starting new ones'
-            Start-Sleep -Milliseconds $SleepTime 
+        $NodeName = $_.DNSHostName
+        Debug("Processing $NodeName")
+        # Start jobs until we hit 75% CPU usage
+        While ((Get-WmiObject Win32_processor).LoadPercentage -ge 75){
+            Start-Sleep -Milliseconds 1000
         }
-
-        # Start new jobs 
-        # Powershell mult-threading is a PITA!
-        # Can't just Start-Job with a Invoke-Command to a remote host
-        # Have to Start-Job, Invoke-Expression, that then Invoke-Command's - gross
+        $Process = Start-Process powershell.exe -ArgumentList "$CWD\easyhound.ps1 -GetNodeData 1 -NodeName $NodeName -CWD $CWD -DomainName $DomainName" -NoNewWindow -Passthru
         $i++
-        $Node = Get-Content $Path | ConvertFrom-Json
-        if (Test-Connection -ComputerName $Node.name -Count 1 -Quiet){
-            $Script = {
-                param(
-                    [string]$NodeName,
-                    [string]$CWD,
-                    [string]$DomainName
-                )
-                $expression = "$CWD\get_sessions.ps1 -NodeName $NodeName -CWD $CWD -Domain $DomainName"
-                Write-Host $expression
-                Invoke-Expression $expression
+        Write-Progress -Id 1 -Activity 'Processing nodes' -Status "$i of $NodesCount nodes processed" -PercentComplete ($i / $NodesCount * 100)
+    }
+}
+
+
+function Get-Node-Data{
+    param(
+        [string]$NodeName,
+        [string]$DomainName,
+        [string]$CWD
+    )
+
+    $Script = {
+        param(
+            [string]$NodeName,
+            [string]$DomainName,
+            [string]$CWD
+        )
+
+        # Create object
+        $Node = new-object psobject
+        # Add name
+        $Node | Add-Member -NotePropertyName "name" -NotePropertyValue $NodeName
+        # Add sessions
+        $UserNames = (Get-Process -IncludeUserName | Select-Object UserName -Unique).UserName
+        $DomainUserNames = @()
+        foreach($UserName in $UserNames){
+            # Domain user?
+            if ($UserName -match "^$DomainName"){
+                $DomainUserNames += $UserName
             }
-            $Jobs += Start-Job -ScriptBlock $Script -ArgumentList $Node.name,$CWD,$DomainName
-            $Script = {
-                param(
-                    [string]$NodeName,
-                    [string]$CWD
-                )
-                Invoke-Expression "$CWD\get_admins.ps1 -NodeName $NodeName -CWD $CWD"
-            }
-            $Jobs += Start-Job -ScriptBlock $Script -ArgumentList $Node.name,$CWD
         }
-        Write-Progress -Id 1 -Activity 'Starting jobs' -Status "$($(Get-job -State Running).count) jobs running" -PercentComplete ($i / $Nodes.Count * 100)
-        Write-Verbose -Message "Job with id: $($LastJob.Id) just started."
+        $Node | Add-Member -NotePropertyName "sessions" -NotePropertyValue $DomainUserNames
+        # Add admins
+        $Principals = Get-LocalGroupMember Administrators
+        $DomainPrincipals = @()
+        foreach($Principal in $Principals){
+            if ($Principal.Name -match "^$DomainName"){
+                $DomainPrincipals += $Principal.Name
+            }  
+        }
+        $Node | Add-Member -NotePropertyName "admins" -NotePropertyValue $DomainPrincipals
+        # Return json doc
+        return $Node | ConvertTo-Json
     }
 
-    # All jobs have now been started
-    Write-Verbose -Message "All jobs have been started $(Get-Date)"
-    
-    # Wait for jobs to finish
-    While((Get-Job -State Running).count -gt 0) {
-    
-        $JobsStillRunning = ''
-        foreach($RunningJob in (Get-Job -State Running)) {
-            $JobsStillRunning += "$($RunningJob.Name) "
-        }
-
-        Write-Progress -Id 1 -Activity 'Waiting for jobs to finish' -Status "$JobsStillRunning"  -PercentComplete (($Node.Count - (Get-Job -State Running).Count) / $Node.Count * 100)
-        Write-Verbose -Message "Waiting for following $((Get-Job -State Running).count) jobs to stop $JobsStillRunning"
-        Start-Sleep -Milliseconds $SleepTime
-    }
-
-    # Output
-    Write-Verbose -Message 'Recieving jobs'
-    Get-job | Receive-Job 
-
-    # Cleanup 
-    Get-job | Remove-Job
+    $Node = Invoke-Command -ScriptBlock $Script -ArgumentList $NodeName,$DomainName,$CWD -ComputerName $NodeName
+    # Cache it
+    $Node | Set-Content -Path "$CWD\cache\nodes\$NodeName"
 }
 
 function Get-Domain-Group-Members($Name){
@@ -136,36 +113,6 @@ function Get-Domain-Group-Members($Name){
     # Save the object changes
     $Group | ConvertTo-Json | Set-Content -Path $Path
 }
-
-function Get-Found-Group-Members{
-    Get-ChildItem -File -Path 'cache\groups' | ForEach-Object {
-        Get-Domain-Group-Members($_)
-    }
-}
-
-function Add-Members{
-    param(
-        [array]$Array,
-        [string]$GroupPath
-    )
-
-    if (Test-Path -Path $GroupPath){
-        $Group = Get-Content $GroupPath | ConvertFrom-Json
-        foreach ($Member in $Group.members){
-            if (-not ($Array -contains $Member)){
-                $Array += $Member
-            }
-        }
-    }
-
-    return $Array
-}
-
-function Convert-Path-To-Name($Path){
-    $Arr = $Path.Split("\")
-    return $Arr[3]
-}
-
 
 function Generate-Report{
     $CWD = Get-Location
@@ -223,8 +170,7 @@ function Generate-Report{
             }
         }
     }
-
-
+    Write-Host "Report written to $CWD\report.csv"
 }
 
 function Create-Cache{
@@ -232,7 +178,7 @@ function Create-Cache{
         New-Item -Path '.\cache' -ItemType Directory
         New-Item -Path '.\cache\groups' -ItemType Directory
         New-Item -Path '.\cache\nodes' -ItemType Directory
-        New-Item -Path '.\cache\users' -ItemType Directory
+        #New-Item -Path '.\cache\users' -ItemType Directory
     }
 
 }
@@ -241,21 +187,37 @@ function Debug($Message){
     Write-Host $Message
 }
 
+function Cache-Generic{
+    param (
+        [string]$Path
+    )
+
+    if (-not (Test-Path -Path $Path)){
+        # Cache object does not exist, create it.
+        $New = [PSCustomObject]@{
+            name = Get-Last-Slash($Path)
+        }
+
+        # Convert our object to JSON and cache
+        $New | ConvertTo-Json | Set-Content -Path $Path
+    }
+}
+
+function Get-Last-Slash($Path){
+    $a = $Path.Split("\")
+    return $a[$a.count-1]
+}
+
 function Main {
     # Create our cache directory to store data
     Debug("Create-Cache")
     Create-Cache
 
-    # Pull list of computers from AD and cache
-    # Port scan the list
-    # Pull session and admin data from alive list
-    Debug("Get-Nodes")
+    # Pull list of computers from AD and query
+    Debug("Get-Alive-Nodes")
     Get-Nodes
 
-    # Get domain group members
-    Debug("Get-Found-Group-Members")
-    Get-Found-Group-Members
-    # Always get these group members
+    # Get domain/enterprise admins
     Debug("Get-Domain-Group-Members-Domain-Admins")
     Get-Domain-Group-Members("Domain Admins")
     Debug("Get-Domain-Group-Members-Enterprise-Admins")
@@ -267,9 +229,10 @@ function Main {
 
 }
 
-$CWD = Get-Location
-. "$CWD\shared.ps1"
-if ($ReportOnly){
+if ($GetNodeData){
+    Get-Node-Data -NodeName $NodeName -DomainName $DomainName -CWD $CWD
+}
+elseif ($ReportOnly){
     Generate-Report
 }
 else {

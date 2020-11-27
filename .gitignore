@@ -1,2 +1,2 @@
-./cache
-./Code/cache
+cache/*
+Code/cache/*
