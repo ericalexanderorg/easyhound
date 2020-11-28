@@ -83,6 +83,7 @@ function Get-Node-Data{
 }
 
 function Get-Domain-Group-Members($Name){
+    Debug("Getting Domain Group Members: $Name")
     # Create the cached object if it doesn't exist
     Cache-Generic -Path ".\cache\groups\$Name"
 
@@ -217,11 +218,15 @@ function Main {
     Debug("Get-Alive-Nodes")
     Get-Nodes
 
-    # Get domain/enterprise admins
-    Debug("Get-Domain-Group-Members-Domain-Admins")
+    # Get groups/members with access to logon to a DC
+    # https://adsecurity.org/?p=272
     Get-Domain-Group-Members("Domain Admins")
-    Debug("Get-Domain-Group-Members-Enterprise-Admins")
     Get-Domain-Group-Members("Enterprise Admins")
+    Get-Domain-Group-Members("Administrators")
+    Get-Domain-Group-Members("Backup Operators")
+    Get-Domain-Group-Members("Account Operators")
+    Get-Domain-Group-Members("Print Operators")
+
 
     # Generate report using data in our cache
     Debug("Generate-Report")
