@@ -8,7 +8,10 @@ In a powershell console:
     # Install AD Tools if not already installed
     Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
     # Download and run EasyHound (inspect first if you'd like)
-    iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/ericalexanderorg/easyhound/main/Code/easyhound.ps1'))`
+    $CWD = Get-Location
+    $client = new-object System.Net.WebClient
+    $client.DownloadFile("https://raw.githubusercontent.com/ericalexanderorg/easyhound/main/Code/easyhound.ps1", "$CWD\easyhound.ps1")
+    ./easyhound.ps1`
 
 ## Goals
 * All powershell. Reduce barriers to run.
